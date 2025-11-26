@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
+import networkx as nx
 from src.data_processing import DataLoader
 from src.season_detection import SeasonSplitter
 from src.node_generation import CountyNodeGenerator, ClusterNodeGenerator
@@ -14,7 +15,7 @@ def main():
     
     # Configuration
     YEARS = [2018, 2019, 2020, 2021, 2022, 2023]
-    USE_CLUSTERING = True  # Set to True to use ML-based clustering nodes, False for county-based
+    USE_CLUSTERING = False  # Set to True to use ML-based clustering nodes, False for county-based
     SPLIT_SEASONS = True  # Set to True to split into Spring/Fall, False to use full year
     OUTPUT_DIR = "results"
     
@@ -59,7 +60,7 @@ def main():
             # 3. Generate Nodes
             # We can do both or just one. Let's do Clustering if enabled, else County.
             if USE_CLUSTERING:
-                node_gen = ClusterNodeGenerator(eps_km=50, min_samples=10)
+                node_gen = ClusterNodeGenerator(eps_km=100, min_samples=3)  # Less aggressive parameters
                 nodes_df, _ = node_gen.generate_nodes(season_df)
                 node_type = "cluster"
             else:
@@ -76,102 +77,124 @@ def main():
             
             # Save GraphML
             output_base = os.path.join(OUTPUT_DIR, f"migration_network_{year}_{season_name}_{node_type}")
-            import networkx as nx
             nx.write_graphml(network, f"{output_base}.graphml")
             
-            # 5. Flow Analysis (Max-Flow Min-Cut)
-            analyzer = FlowAnalyzer(network)
-            
-            # Define Source/Sink based on geography and season
-            lats = [d['lat'] for n, d in network.nodes(data=True)]
-            if not lats:
-                continue
+            # 5. Flow Analysis (Max-Flow Min-Cut) - Per Flyway
+            # Find weakly connected components (flyways)
+            components = list(nx.weakly_connected_components(network))
+            print(f"\nFound {len(components)} flyway(s)/connected component(s)")
+
+            # Analyze each flyway separately
+            all_cut_edges = []
+            total_max_flow = 0
+
+            for flyway_idx, flyway_nodes in enumerate(components):
+                if len(flyway_nodes) < 2:
+                    print(f"Flyway {flyway_idx + 1}: Skipping (only {len(flyway_nodes)} node)")
+                    continue
+                    
+                print(f"\nAnalyzing Flyway {flyway_idx + 1} ({len(flyway_nodes)} nodes)...")
+                flyway_subgraph = network.subgraph(flyway_nodes)
                 
-            min_lat, max_lat = min(lats), max(lats)
-            lat_range = max_lat - min_lat
-            
-            if lat_range == 0:
-                print(f"Warning: All nodes have same latitude. Skipping flow analysis.")
-                continue
-            
-            # PreBreeding (before August): South -> North migration
-            if season_name == 'PreBreeding':
-                # Use more lenient thresholds: bottom 30% and top 30%
-                source_cutoff = min_lat + (lat_range * 0.3) # Bottom 30%
-                sink_cutoff = max_lat - (lat_range * 0.3)   # Top 30%
+                # Create analyzer for this flyway
+                flyway_analyzer = FlowAnalyzer(flyway_subgraph)
                 
-                source_func = lambda d: d['lat'] <= source_cutoff
-                sink_func = lambda d: d['lat'] >= sink_cutoff
+                # Define Source/Sink based on geography and season WITHIN this flyway
+                lats = [d['lat'] for n, d in flyway_subgraph.nodes(data=True)]
+                if not lats:
+                    continue
+                    
+                min_lat, max_lat = min(lats), max(lats)
+                lat_range = max_lat - min_lat
                 
-            # PostBreeding (after August): North -> South migration
-            else:  # PostBreeding or FullYear
-                # Use more lenient thresholds: top 30% and bottom 30%
-                source_cutoff = max_lat - (lat_range * 0.3) # Top 30%
-                sink_cutoff = min_lat + (lat_range * 0.3)   # Bottom 30%
+                if lat_range == 0:
+                    print(f"  Warning: All nodes have same latitude. Skipping.")
+                    continue
                 
-                source_func = lambda d: d['lat'] >= source_cutoff
-                sink_func = lambda d: d['lat'] <= sink_cutoff
-                
-            # Debug: Check how many nodes match criteria
-            source_nodes = [n for n, d in network.nodes(data=True) if source_func(d)]
-            sink_nodes = [n for n, d in network.nodes(data=True) if sink_func(d)]
-            print(f"Source nodes: {len(source_nodes)}, Sink nodes: {len(sink_nodes)}")
-            
-            # Fallback: if no sources/sinks found, use extreme nodes
-            if len(source_nodes) == 0:
-                print("No source nodes found with criteria. Using extreme node(s) as fallback.")
+                # PreBreeding (before August): South -> North migration
                 if season_name == 'PreBreeding':
-                    # PreBreeding: use southernmost (northward migration)
-                    sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'])
-                    source_node_id = sorted_by_lat[0][0]
-                    source_lat = sorted_by_lat[0][1]['lat']
-                else:
-                    # PostBreeding/FullYear: use northernmost (southward migration)
-                    sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'], reverse=True)
-                    source_node_id = sorted_by_lat[0][0]
-                    source_lat = sorted_by_lat[0][1]['lat']
-                source_nodes = [source_node_id]
-                source_func = lambda d, slat=source_lat: abs(d.get('lat', 0) - slat) < 0.001  # Match by lat
+                    source_cutoff = min_lat + (lat_range * 0.3) # Bottom 30%
+                    sink_cutoff = max_lat - (lat_range * 0.3)   # Top 30%
+                    
+                    source_func = lambda d: d['lat'] <= source_cutoff
+                    sink_func = lambda d: d['lat'] >= sink_cutoff
+                    
+                # PostBreeding (after August): North -> South migration
+                else:  # PostBreeding or FullYear
+                    source_cutoff = max_lat - (lat_range * 0.3) # Top 30%
+                    sink_cutoff = min_lat + (lat_range * 0.3)   # Bottom 30%
+                    
+                    source_func = lambda d: d['lat'] >= source_cutoff
+                    sink_func = lambda d: d['lat'] <= sink_cutoff
                 
-            if len(sink_nodes) == 0:
-                print("No sink nodes found with criteria. Using extreme node(s) as fallback.")
-                if season_name == 'PreBreeding':
-                    # PreBreeding: use northernmost (northward migration)
-                    sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'], reverse=True)
-                    sink_node_id = sorted_by_lat[0][0]
-                    sink_lat = sorted_by_lat[0][1]['lat']
-                else:
-                    # PostBreeding/FullYear: use southernmost (southward migration)
-                    sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'])
-                    sink_node_id = sorted_by_lat[0][0]
-                    sink_lat = sorted_by_lat[0][1]['lat']
-                sink_nodes = [sink_node_id]
-                sink_func = lambda d, slat=sink_lat: abs(d.get('lat', 0) - slat) < 0.001  # Match by lat
+                # Check how many nodes match criteria
+                source_nodes = [n for n, d in flyway_subgraph.nodes(data=True) if source_func(d)]
+                sink_nodes = [n for n, d in flyway_subgraph.nodes(data=True) if sink_func(d)]
+                print(f"  Source nodes: {len(source_nodes)}, Sink nodes: {len(sink_nodes)}")
                 
-            print(f"Final: Source nodes: {len(source_nodes)}, Sink nodes: {len(sink_nodes)}")
-            
-            analyzer.build_flow_network(source_func, sink_func)
-            
-            try:
-                max_flow, flow_dict = analyzer.calculate_max_flow()
-                min_cut_val, cut_edges = analyzer.calculate_min_cut()
+                # Fallback: if no sources/sinks found, use extreme nodes
+                if len(source_nodes) == 0:
+                    print("  No source nodes found. Using extreme node(s) as fallback.")
+                    if season_name == 'PreBreeding':
+                        sorted_by_lat = sorted(flyway_subgraph.nodes(data=True), key=lambda x: x[1]['lat'])
+                        source_node_id = sorted_by_lat[0][0]
+                        source_lat = sorted_by_lat[0][1]['lat']
+                    else:
+                        sorted_by_lat = sorted(flyway_subgraph.nodes(data=True), key=lambda x: x[1]['lat'], reverse=True)
+                        source_node_id = sorted_by_lat[0][0]
+                        source_lat = sorted_by_lat[0][1]['lat']
+                    source_nodes = [source_node_id]
+                    source_func = lambda d, slat=source_lat: abs(d.get('lat', 0) - slat) < 0.001
+                    
+                if len(sink_nodes) == 0:
+                    print("  No sink nodes found. Using extreme node(s) as fallback.")
+                    if season_name == 'PreBreeding':
+                        sorted_by_lat = sorted(flyway_subgraph.nodes(data=True), key=lambda x: x[1]['lat'], reverse=True)
+                        sink_node_id = sorted_by_lat[0][0]
+                        sink_lat = sorted_by_lat[0][1]['lat']
+                    else:
+                        sorted_by_lat = sorted(flyway_subgraph.nodes(data=True), key=lambda x: x[1]['lat'])
+                        sink_node_id = sorted_by_lat[0][0]
+                        sink_lat = sorted_by_lat[0][1]['lat']
+                    sink_nodes = [sink_node_id]
+                    sink_func = lambda d, slat=sink_lat: abs(d.get('lat', 0) - slat) < 0.001
                 
-                # 6. Visualize
+                if len(source_nodes) == 0 or len(sink_nodes) == 0:
+                    print(f"  Skipping flyway {flyway_idx + 1}: No valid sources/sinks")
+                    continue
+                
+                # Build flow network for this flyway
+                flyway_analyzer.build_flow_network(source_func, sink_func)
+                
+                try:
+                    max_flow, flow_dict = flyway_analyzer.calculate_max_flow()
+                    min_cut_val, cut_edges = flyway_analyzer.calculate_min_cut()
+                    
+                    total_max_flow += max_flow
+                    all_cut_edges.extend(cut_edges)
+                    
+                    print(f"  Flyway {flyway_idx + 1}: Max Flow = {max_flow:.2f}, Min Cut = {min_cut_val:.2f}")
+                    
+                except Exception as e:
+                    print(f"  Flow analysis failed for flyway {flyway_idx + 1}: {e}")
+                    continue
+
+            # 6. Visualize (using full network, but with combined results)
+            if total_max_flow > 0:
                 Visualizer.create_interactive_map(
                     network, 
                     f"{output_base}.html", 
-                    title=f"Sandhill Crane Migration ({season_name} {year}) - Max Flow: {max_flow}"
+                    title=f"Sandhill Crane Migration ({season_name} {year}) - Total Max Flow: {total_max_flow:.0f}"
                 )
                 
                 Visualizer.plot_min_cut(
                     network, 
-                    cut_edges, 
+                    all_cut_edges, 
                     f"{output_base}_mincut.png", 
-                    title=f"Min-Cut Bottlenecks ({season_name} {year})"
+                    title=f"Min-Cut Bottlenecks ({season_name} {year}) - Total Flow: {total_max_flow:.0f}"
                 )
-            except Exception as e:
-                print(f"Analysis failed for {year} {season_name}: {e}")
-
+            else:
+                print(f"Warning: No valid flow found for {year} {season_name}. Skipping visualization.")
     print("\nPipeline execution complete!")
 
 if __name__ == "__main__":
