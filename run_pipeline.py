@@ -14,7 +14,8 @@ def main():
     
     # Configuration
     YEARS = [2018, 2019, 2020, 2021, 2022, 2023]
-    USE_CLUSTERING = True  # Toggle to use ML-based nodes
+    USE_CLUSTERING = True  # Set to True to use ML-based clustering nodes, False for county-based
+    SPLIT_SEASONS = True  # Set to True to split into Spring/Fall, False to use full year
     OUTPUT_DIR = "results"
     
     if not os.path.exists(OUTPUT_DIR):
@@ -39,10 +40,16 @@ def main():
         if df.empty:
             continue
             
-        # 2. Split Seasons
-        seasons = splitter.split_seasons(df)
+        # 2. Split Seasons (optional)
+        if SPLIT_SEASONS:
+            seasons = splitter.split_seasons(df)
+            season_list = seasons.items()
+        else:
+            # Use full year data
+            seasons = {'FullYear': df}
+            season_list = seasons.items()
         
-        for season_name, season_df in seasons.items():
+        for season_name, season_df in season_list:
             if season_df.empty:
                 print(f"No data for {season_name} {year}. Skipping.")
                 continue
@@ -87,8 +94,8 @@ def main():
                 print(f"Warning: All nodes have same latitude. Skipping flow analysis.")
                 continue
             
-            # Spring: South -> North
-            if season_name == 'Spring':
+            # PreBreeding (before August): South -> North migration
+            if season_name == 'PreBreeding':
                 # Use more lenient thresholds: bottom 30% and top 30%
                 source_cutoff = min_lat + (lat_range * 0.3) # Bottom 30%
                 sink_cutoff = max_lat - (lat_range * 0.3)   # Top 30%
@@ -96,8 +103,8 @@ def main():
                 source_func = lambda d: d['lat'] <= source_cutoff
                 sink_func = lambda d: d['lat'] >= sink_cutoff
                 
-            # Fall: North -> South
-            else:
+            # PostBreeding (after August): North -> South migration
+            else:  # PostBreeding or FullYear
                 # Use more lenient thresholds: top 30% and bottom 30%
                 source_cutoff = max_lat - (lat_range * 0.3) # Top 30%
                 sink_cutoff = min_lat + (lat_range * 0.3)   # Bottom 30%
@@ -113,13 +120,13 @@ def main():
             # Fallback: if no sources/sinks found, use extreme nodes
             if len(source_nodes) == 0:
                 print("No source nodes found with criteria. Using extreme node(s) as fallback.")
-                if season_name == 'Spring':
-                    # Spring: use southernmost
+                if season_name == 'PreBreeding':
+                    # PreBreeding: use southernmost (northward migration)
                     sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'])
                     source_node_id = sorted_by_lat[0][0]
                     source_lat = sorted_by_lat[0][1]['lat']
                 else:
-                    # Fall: use northernmost
+                    # PostBreeding/FullYear: use northernmost (southward migration)
                     sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'], reverse=True)
                     source_node_id = sorted_by_lat[0][0]
                     source_lat = sorted_by_lat[0][1]['lat']
@@ -128,13 +135,13 @@ def main():
                 
             if len(sink_nodes) == 0:
                 print("No sink nodes found with criteria. Using extreme node(s) as fallback.")
-                if season_name == 'Spring':
-                    # Spring: use northernmost
+                if season_name == 'PreBreeding':
+                    # PreBreeding: use northernmost (northward migration)
                     sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'], reverse=True)
                     sink_node_id = sorted_by_lat[0][0]
                     sink_lat = sorted_by_lat[0][1]['lat']
                 else:
-                    # Fall: use southernmost
+                    # PostBreeding/FullYear: use southernmost (southward migration)
                     sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'])
                     sink_node_id = sorted_by_lat[0][0]
                     sink_lat = sorted_by_lat[0][1]['lat']

@@ -3,47 +3,45 @@ from datetime import datetime
 
 class SeasonSplitter:
     """
-    Handles separating data into migration seasons (Spring/North vs Fall/South).
+    Handles separating data into migration seasons (Pre-breeding/North vs Post-breeding/South).
     """
     
-    def __init__(self, spring_start_date="01-01", spring_end_date="07-15", 
-                 fall_start_date="07-16", fall_end_date="12-31"):
+    def __init__(self, pre_breeding_start="01-01", pre_breeding_end="07-31", 
+                 post_breeding_start="08-01", post_breeding_end="12-31"):
         """
         Initialize with date ranges. Format: "MM-DD"
+        Default: Before August (pre-breeding) and After August (post-breeding)
         """
-        self.spring_start = spring_start_date
-        self.spring_end = spring_end_date
-        self.fall_start = fall_start_date
-        self.fall_end = fall_end_date
+        self.pre_breeding_start = pre_breeding_start
+        self.pre_breeding_end = pre_breeding_end
+        self.post_breeding_start = post_breeding_start
+        self.post_breeding_end = post_breeding_end
 
     def split_seasons(self, df, date_col='observation_date'):
         """
-        Split the dataframe into Spring and Fall datasets based on the date column.
+        Split the dataframe into Pre-breeding (before August) and Post-breeding (after August) datasets.
         
         Args:
             df (pd.DataFrame): Input dataframe with a datetime column.
             date_col (str): Name of the date column.
             
         Returns:
-            dict: {'Spring': pd.DataFrame, 'Fall': pd.DataFrame}
+            dict: {'PreBreeding': pd.DataFrame, 'PostBreeding': pd.DataFrame}
         """
         print(f"Splitting data into seasons based on {date_col}...")
         
         if df.empty:
-            return {'Spring': pd.DataFrame(), 'Fall': pd.DataFrame()}
+            return {'PreBreeding': pd.DataFrame(), 'PostBreeding': pd.DataFrame()}
             
         # Ensure date column is datetime
         if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
             df[date_col] = pd.to_datetime(df[date_col])
             
-        # We need to handle multiple years if present, but typically we process one year at a time.
-        # However, the mask should work on month-day regardless of year.
-        
         # Parse cutoff dates
-        spring_s_m, spring_s_d = map(int, self.spring_start.split('-'))
-        spring_e_m, spring_e_d = map(int, self.spring_end.split('-'))
-        fall_s_m, fall_s_d = map(int, self.fall_start.split('-'))
-        fall_e_m, fall_e_d = map(int, self.fall_end.split('-'))
+        pre_s_m, pre_s_d = map(int, self.pre_breeding_start.split('-'))
+        pre_e_m, pre_e_d = map(int, self.pre_breeding_end.split('-'))
+        post_s_m, post_s_d = map(int, self.post_breeding_start.split('-'))
+        post_e_m, post_e_d = map(int, self.post_breeding_end.split('-'))
         
         # Create masks
         def is_in_range(date_series, start_m, start_d, end_m, end_d):
@@ -57,14 +55,14 @@ class SeasonSplitter:
             else: # Range wraps around year end (unlikely for this specific use case but good for robustness)
                 return (md >= start_md) | (md <= end_md)
 
-        spring_mask = is_in_range(df[date_col], spring_s_m, spring_s_d, spring_e_m, spring_e_d)
-        fall_mask = is_in_range(df[date_col], fall_s_m, fall_s_d, fall_e_m, fall_e_d)
+        pre_breeding_mask = is_in_range(df[date_col], pre_s_m, pre_s_d, pre_e_m, pre_e_d)
+        post_breeding_mask = is_in_range(df[date_col], post_s_m, post_s_d, post_e_m, post_e_d)
         
-        spring_df = df[spring_mask].copy()
-        fall_df = df[fall_mask].copy()
+        pre_breeding_df = df[pre_breeding_mask].copy()
+        post_breeding_df = df[post_breeding_mask].copy()
         
-        print(f"Spring observations: {len(spring_df):,}")
-        print(f"Fall observations: {len(fall_df):,}")
+        print(f"Pre-breeding (before August) observations: {len(pre_breeding_df):,}")
+        print(f"Post-breeding (after August) observations: {len(post_breeding_df):,}")
         
-        return {'Spring': spring_df, 'Fall': fall_df}
+        return {'PreBreeding': pre_breeding_df, 'PostBreeding': post_breeding_df}
 

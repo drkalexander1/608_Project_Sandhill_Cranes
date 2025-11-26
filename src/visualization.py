@@ -11,11 +11,27 @@ class Visualizer:
     """
     
     @staticmethod
-    def create_interactive_map(network, output_file, title="Migration Network"):
+    def create_interactive_map(network, output_file, title="Migration Network", min_cranes=50):
         """
-        Create an interactive Folium map.
+        Create an interactive Folium map with filtering for significant nodes.
+        
+        Args:
+            network: NetworkX graph
+            output_file: Output file path
+            title: Map title
+            min_cranes: Minimum crane count to display node (default 50)
         """
         print(f"Creating interactive map: {output_file}...")
+        
+        # Filter to significant nodes (like original code)
+        significant_nodes = {
+            n: d for n, d in network.nodes(data=True) 
+            if d.get('total_cranes', 0) >= min_cranes
+        }
+        
+        if not significant_nodes:
+            print(f"Warning: No nodes with {min_cranes}+ cranes found. Showing all nodes.")
+            significant_nodes = dict(network.nodes(data=True))
         
         # Center map (US approximate center)
         m = folium.Map(location=[39.8283, -98.5795], zoom_start=4, tiles='OpenStreetMap')
@@ -26,29 +42,44 @@ class Visualizer:
              '''
         m.get_root().html.add_child(folium.Element(title_html))
         
-        # Draw edges first
-        for u, v, data in network.edges(data=True):
-            weight = data.get('weight', 0)
-            if weight > 0.01: # Threshold
-                pos_u = (network.nodes[u]['lat'], network.nodes[u]['lon'])
-                pos_v = (network.nodes[v]['lat'], network.nodes[v]['lon'])
+        # Create subgraph for significant nodes
+        subgraph = network.subgraph(significant_nodes.keys())
+        
+        # Get edges sorted by weight (strongest first)
+        edges_with_weights = [
+            (source, target, data.get('weight', 0)) 
+            for source, target, data in subgraph.edges(data=True)
+        ]
+        sorted_edges = sorted(edges_with_weights, key=lambda x: x[2], reverse=True)
+        
+        # Draw edges first (so they appear behind nodes)
+        for source, target, weight in sorted_edges:
+            if weight > 0.01:  # Threshold
+                source_data = significant_nodes[source]
+                target_data = significant_nodes[target]
                 
                 folium.PolyLine(
-                    locations=[pos_u, pos_v],
+                    locations=[
+                        [source_data['lat'], source_data['lon']],
+                        [target_data['lat'], target_data['lon']]
+                    ],
                     color='blue',
-                    weight=weight * 5,
-                    opacity=0.5
+                    weight=max(1, min(5, weight * 10)),  # Better scaling
+                    opacity=0.4
                 ).add_to(m)
                 
         # Draw nodes
-        for node, data in network.nodes(data=True):
+        for node, data in significant_nodes.items():
             cranes = data.get('total_cranes', 0)
-            radius = max(3, min(20, cranes / 100))
+            radius = max(5, min(20, cranes / 100))  # Better size scaling
             
             color = 'green'
-            if cranes > 1000: color = 'red'
-            elif cranes > 500: color = 'orange'
-            elif cranes > 200: color = 'yellow'
+            if cranes > 1000: 
+                color = 'red'
+            elif cranes > 500: 
+                color = 'orange'
+            elif cranes > 200: 
+                color = 'yellow'
             
             folium.CircleMarker(
                 location=[data['lat'], data['lon']],
@@ -56,8 +87,27 @@ class Visualizer:
                 color=color,
                 fill=True,
                 fill_opacity=0.7,
-                tooltip=f"Node: {node}<br>Cranes: {cranes}"
+                weight=2,
+                tooltip=f"Node: {node}<br>Cranes: {int(cranes)}"
             ).add_to(m)
+        
+        # Add legend
+        legend_html = f'''
+        <div style="position: fixed; 
+                    bottom: 50px; left: 50px; width: 200px; height: 140px; 
+                    background-color: white; border:2px solid grey; z-index:9999; 
+                    font-size:14px; padding: 10px">
+        <p><b>{title}</b></p>
+        <p><i class="fa fa-circle" style="color:red"></i> >1000 cranes</p>
+        <p><i class="fa fa-circle" style="color:orange"></i> 500-1000 cranes</p>
+        <p><i class="fa fa-circle" style="color:yellow"></i> 200-500 cranes</p>
+        <p><i class="fa fa-circle" style="color:green"></i> {min_cranes}-200 cranes</p>
+        <p><i class="fa fa-minus" style="color:blue"></i> Migration routes</p>
+        <p>Nodes: {len(significant_nodes)}</p>
+        <p>Edges: {subgraph.number_of_edges()}</p>
+        </div>
+        '''
+        m.get_root().html.add_child(folium.Element(legend_html))
             
         m.save(output_file)
         print(f"Saved to {output_file}")
