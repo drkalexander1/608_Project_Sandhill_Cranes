@@ -83,21 +83,65 @@ def main():
             min_lat, max_lat = min(lats), max(lats)
             lat_range = max_lat - min_lat
             
+            if lat_range == 0:
+                print(f"Warning: All nodes have same latitude. Skipping flow analysis.")
+                continue
+            
             # Spring: South -> North
             if season_name == 'Spring':
-                source_cutoff = min_lat + (lat_range * 0.2) # Bottom 20%
-                sink_cutoff = max_lat - (lat_range * 0.2)   # Top 20%
+                # Use more lenient thresholds: bottom 30% and top 30%
+                source_cutoff = min_lat + (lat_range * 0.3) # Bottom 30%
+                sink_cutoff = max_lat - (lat_range * 0.3)   # Top 30%
                 
                 source_func = lambda d: d['lat'] <= source_cutoff
                 sink_func = lambda d: d['lat'] >= sink_cutoff
                 
             # Fall: North -> South
             else:
-                source_cutoff = max_lat - (lat_range * 0.2) # Top 20%
-                sink_cutoff = min_lat + (lat_range * 0.2)   # Bottom 20%
+                # Use more lenient thresholds: top 30% and bottom 30%
+                source_cutoff = max_lat - (lat_range * 0.3) # Top 30%
+                sink_cutoff = min_lat + (lat_range * 0.3)   # Bottom 30%
                 
                 source_func = lambda d: d['lat'] >= source_cutoff
                 sink_func = lambda d: d['lat'] <= sink_cutoff
+                
+            # Debug: Check how many nodes match criteria
+            source_nodes = [n for n, d in network.nodes(data=True) if source_func(d)]
+            sink_nodes = [n for n, d in network.nodes(data=True) if sink_func(d)]
+            print(f"Source nodes: {len(source_nodes)}, Sink nodes: {len(sink_nodes)}")
+            
+            # Fallback: if no sources/sinks found, use extreme nodes
+            if len(source_nodes) == 0:
+                print("No source nodes found with criteria. Using extreme node(s) as fallback.")
+                if season_name == 'Spring':
+                    # Spring: use southernmost
+                    sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'])
+                    source_node_id = sorted_by_lat[0][0]
+                    source_lat = sorted_by_lat[0][1]['lat']
+                else:
+                    # Fall: use northernmost
+                    sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'], reverse=True)
+                    source_node_id = sorted_by_lat[0][0]
+                    source_lat = sorted_by_lat[0][1]['lat']
+                source_nodes = [source_node_id]
+                source_func = lambda d, slat=source_lat: abs(d.get('lat', 0) - slat) < 0.001  # Match by lat
+                
+            if len(sink_nodes) == 0:
+                print("No sink nodes found with criteria. Using extreme node(s) as fallback.")
+                if season_name == 'Spring':
+                    # Spring: use northernmost
+                    sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'], reverse=True)
+                    sink_node_id = sorted_by_lat[0][0]
+                    sink_lat = sorted_by_lat[0][1]['lat']
+                else:
+                    # Fall: use southernmost
+                    sorted_by_lat = sorted(network.nodes(data=True), key=lambda x: x[1]['lat'])
+                    sink_node_id = sorted_by_lat[0][0]
+                    sink_lat = sorted_by_lat[0][1]['lat']
+                sink_nodes = [sink_node_id]
+                sink_func = lambda d, slat=sink_lat: abs(d.get('lat', 0) - slat) < 0.001  # Match by lat
+                
+            print(f"Final: Source nodes: {len(source_nodes)}, Sink nodes: {len(sink_nodes)}")
             
             analyzer.build_flow_network(source_func, sink_func)
             

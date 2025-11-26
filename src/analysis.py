@@ -35,6 +35,9 @@ class FlowAnalyzer:
         G.add_node(T)
         
         # Process nodes
+        source_count = 0
+        sink_count = 0
+        
         for node, data in self.original_network.nodes(data=True):
             # Node Splitting: u -> u_in, u_out
             u_in = f"{node}_in"
@@ -56,10 +59,14 @@ class FlowAnalyzer:
             if source_criteria_func(data):
                 # Source connects to u_in with infinite capacity
                 G.add_edge(S, u_in, capacity=float('inf'), weight=0)
+                source_count += 1
                 
             if sink_criteria_func(data):
                 # u_out connects to Sink with infinite capacity
                 G.add_edge(u_out, T, capacity=float('inf'), weight=0)
+                sink_count += 1
+                
+        print(f"Selected {source_count} source nodes and {sink_count} sink nodes.")
                 
         # Process edges from original network
         for u, v, data in self.original_network.edges(data=True):
@@ -74,6 +81,17 @@ class FlowAnalyzer:
                 G.add_edge(u_out, v_in, capacity=float('inf'), weight=dist)
                 
         self.flow_network = G
+        
+        # Check if there's a path from source to sink
+        if source_count > 0 and sink_count > 0:
+            try:
+                has_path = nx.has_path(G, S, T)
+                print(f"Path exists from source to sink: {has_path}")
+                if not has_path:
+                    print("Warning: No path exists from source to sink. Flow will be 0.")
+            except:
+                pass
+        
         print(f"Flow network built: {G.number_of_nodes()} nodes (split), {G.number_of_edges()} edges.")
         return G
         
@@ -85,7 +103,7 @@ class FlowAnalyzer:
             raise ValueError("Flow network not built. Call build_flow_network first.")
             
         print("Calculating Maximum Flow...")
-        flow_value, flow_dict = nx.maximum_flow(self.flow_network, "SUPER_SOURCE", "SUPER_SINK")
+        flow_value, flow_dict = nx.maximum_flow(self.flow_network, "SUPER_SOURCE", "SUPER_SINK", capacity='capacity')
         print(f"Maximum Flow Value: {flow_value}")
         
         return flow_value, flow_dict
@@ -98,7 +116,7 @@ class FlowAnalyzer:
             raise ValueError("Flow network not built.")
             
         print("Calculating Minimum Cut...")
-        cut_value, partition = nx.minimum_cut(self.flow_network, "SUPER_SOURCE", "SUPER_SINK")
+        cut_value, partition = nx.minimum_cut(self.flow_network, "SUPER_SOURCE", "SUPER_SINK", capacity='capacity')
         reachable, non_reachable = partition
         
         # Find edges that cross the cut

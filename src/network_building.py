@@ -26,17 +26,39 @@ class NetworkBuilder:
         print("Building network structure...")
         self.network = nx.DiGraph()
         
-        # Add nodes
-        print(f"Adding {len(nodes_df)} nodes...")
-        for _, row in nodes_df.iterrows():
+        # Keep original dataframe for edge calculations (needs datetime objects)
+        nodes_df_original = nodes_df.copy()
+        
+        # Create a copy for node attributes with datetime converted to strings
+        nodes_df_for_nodes = nodes_df.copy()
+        for col in nodes_df_for_nodes.columns:
+            if pd.api.types.is_datetime64_any_dtype(nodes_df_for_nodes[col]):
+                # Use apply(str) to ensure all values are converted, including NaT
+                nodes_df_for_nodes[col] = nodes_df_for_nodes[col].apply(lambda x: str(x) if pd.notna(x) else None)
+        
+        # Add nodes (using string-converted dataframe)
+        print(f"Adding {len(nodes_df_for_nodes)} nodes...")
+        for _, row in nodes_df_for_nodes.iterrows():
+            node_attrs = row.to_dict()
+            # Convert any remaining Timestamp objects to strings and handle NaN values
+            for key, value in node_attrs.items():
+                # Explicitly check for Timestamp types
+                if isinstance(value, pd.Timestamp):
+                    node_attrs[key] = str(value)
+                elif isinstance(value, np.datetime64):
+                    node_attrs[key] = str(value)
+                elif hasattr(value, '__class__') and 'Timestamp' in str(type(value)):
+                    node_attrs[key] = str(value)
+                elif pd.isna(value):
+                    node_attrs[key] = None
             self.network.add_node(
                 row['node_id'],
-                **row.to_dict()
+                **node_attrs
             )
             
-        # Create edges
+        # Create edges (using original dataframe with datetime objects)
         print("Creating edges...")
-        self._create_edges_vectorized(nodes_df)
+        self._create_edges_vectorized(nodes_df_original)
         
         print(f"Network built: {self.network.number_of_nodes()} nodes, {self.network.number_of_edges()} edges.")
         return self.network

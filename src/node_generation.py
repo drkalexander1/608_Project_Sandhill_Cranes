@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 from sklearn.cluster import DBSCAN
-from sklearn.preprocessing import StandardScaler
 
 class NodeGenerator:
     """
@@ -143,7 +142,8 @@ class ClusterNodeGenerator(NodeGenerator):
         ).dt.days
         
         # Update the labeled_df to have 'node_id' for valid ones, NaN for noise
-        labeled_df.loc[labeled_df['cluster_label'] != -1, 'node_id'] = labeled_df.loc[labeled_df['cluster_label'] != -1, 'cluster_label'].apply(lambda x: f"cluster_{x}")
+        mask = labeled_df['cluster_label'] != -1
+        labeled_df.loc[mask, 'node_id'] = labeled_df.loc[mask, 'cluster_label'].apply(lambda x: f"cluster_{x}")
         
         print(f"Generated {len(nodes_df)} cluster-based nodes.")
         return nodes_df, labeled_df
