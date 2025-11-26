@@ -1,6 +1,12 @@
 import pandas as pd
 import numpy as np
-from sklearn.cluster import DBSCAN
+try:
+    from hdbscan import HDBSCAN
+    HDBSCAN_AVAILABLE = True
+except ImportError:
+    from sklearn.cluster import DBSCAN
+    HDBSCAN_AVAILABLE = False
+    print("Warning: hdbscan not available. Falling back to DBSCAN. Install with: pip install hdbscan")
 
 class NodeGenerator:
     """
@@ -60,20 +66,24 @@ class CountyNodeGenerator(NodeGenerator):
 
 class ClusterNodeGenerator(NodeGenerator):
     """
-    Generates nodes using DBSCAN clustering on county-level aggregated data.
+    Generates nodes using HDBSCAN clustering on county-level aggregated data.
     This preserves more connections by clustering counties rather than raw observations.
+    Falls back to DBSCAN if HDBSCAN is not available.
     """
-    def __init__(self, eps_km=100, min_samples=3):
+    def __init__(self, min_cluster_size=3, eps_km=None):
         """
         Args:
-            eps_km (float): Maximum distance between counties to cluster (larger = more aggregation)
-            min_samples (int): Minimum counties needed to form a cluster (lower = more clusters)
+            min_cluster_size (int): Minimum counties needed to form a cluster (lower = more clusters)
+            eps_km (float, optional): Only used for DBSCAN fallback. Maximum distance between counties.
+                                     HDBSCAN doesn't need this parameter.
         """
-        self.eps_km = eps_km
-        self.min_samples = min_samples
+        self.min_cluster_size = min_cluster_size
+        self.eps_km = eps_km if eps_km is not None else 100  # For DBSCAN fallback
+        self.use_hdbscan = HDBSCAN_AVAILABLE
         
     def generate_nodes(self, df):
-        print(f"Generating nodes using DBSCAN Clustering on counties (eps={self.eps_km}km)...")
+        cluster_method = "HDBSCAN" if self.use_hdbscan else "DBSCAN"
+        print(f"Generating nodes using {cluster_method} Clustering on counties...")
         
         if df.empty:
             return pd.DataFrame(), df
@@ -102,19 +112,23 @@ class ClusterNodeGenerator(NodeGenerator):
         
         # Now cluster the counties (not individual observations)
         coords = county_agg[['lat', 'lon']].values
-        
-        # Convert km to radians for haversine metric
-        kms_per_radian = 6371.0088
-        eps_rad = self.eps_km / kms_per_radian
-        
-        db = DBSCAN(eps=eps_rad, min_samples=self.min_samples, metric='haversine', algorithm='ball_tree')
         coords_rad = np.radians(coords)
-        labels = db.fit_predict(coords_rad)
+        
+        # Use HDBSCAN if available, otherwise fall back to DBSCAN
+        if self.use_hdbscan:
+            clusterer = HDBSCAN(min_cluster_size=self.min_cluster_size, metric='haversine')
+            labels = clusterer.fit_predict(coords_rad)
+        else:
+            # Fallback to DBSCAN
+            kms_per_radian = 6371.0088
+            eps_rad = self.eps_km / kms_per_radian
+            db = DBSCAN(eps=eps_rad, min_samples=self.min_cluster_size, metric='haversine', algorithm='ball_tree')
+            labels = db.fit_predict(coords_rad)
         
         county_agg['cluster_label'] = labels
         
         noise_count = (labels == -1).sum()
-        print(f"DBSCAN found {len(set(labels)) - (1 if -1 in labels else 0)} clusters. Noise counties: {noise_count}")
+        print(f"{cluster_method} found {len(set(labels)) - (1 if -1 in labels else 0)} clusters. Noise counties: {noise_count}")
         
         # Assign noise counties to their own clusters (don't drop them!)
         # This preserves all data

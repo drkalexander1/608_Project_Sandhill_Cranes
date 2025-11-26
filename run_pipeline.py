@@ -60,7 +60,7 @@ def main():
             # 3. Generate Nodes
             # We can do both or just one. Let's do Clustering if enabled, else County.
             if USE_CLUSTERING:
-                node_gen = ClusterNodeGenerator(eps_km=100, min_samples=3)  # Less aggressive parameters
+                node_gen = ClusterNodeGenerator(min_cluster_size=3)  # HDBSCAN: only needs min_cluster_size
                 nodes_df, _ = node_gen.generate_nodes(season_df)
                 node_type = "cluster"
             else:
