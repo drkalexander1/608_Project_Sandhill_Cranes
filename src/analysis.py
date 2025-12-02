@@ -130,4 +130,61 @@ class FlowAnalyzer:
         print(f"Edges in Min Cut: {len(cut_edges)}")
         
         return cut_value, cut_edges
+    
+    def extract_bottleneck_locations(self, cut_edges):
+        """
+        Extract geographic locations of bottlenecks from min-cut edges.
+        
+        Returns:
+            dict: {
+                'node_bottlenecks': [{'node_id': ..., 'lat': ..., 'lon': ..., 'capacity': ...}],
+                'edge_bottlenecks': [{'from': ..., 'to': ..., 'from_lat': ..., 'from_lon': ..., 
+                                      'to_lat': ..., 'to_lon': ..., 'distance': ...}]
+            }
+        """
+        node_bottlenecks = []
+        edge_bottlenecks = []
+        seen_nodes = set()  # Avoid duplicates
+        
+        for u_flow, v_flow in cut_edges:
+            # Node bottleneck: internal edge (X_in -> X_out)
+            if u_flow.endswith('_in') and v_flow.endswith('_out'):
+                node_id = u_flow[:-3]  # Remove "_in"
+                if node_id in self.original_network and node_id not in seen_nodes:
+                    seen_nodes.add(node_id)
+                    node_data = self.original_network.nodes[node_id]
+                    node_bottlenecks.append({
+                        'node_id': node_id,
+                        'lat': node_data.get('lat'),
+                        'lon': node_data.get('lon'),
+                        'capacity': node_data.get('total_cranes', 0),
+                        'type': 'node_bottleneck'
+                    })
+            
+            # Edge bottleneck: travel edge (X_out -> Y_in)
+            elif u_flow.endswith('_out') and v_flow.endswith('_in'):
+                u_orig = u_flow[:-4]  # Remove "_out"
+                v_orig = v_flow[:-3]  # Remove "_in"
+                
+                edge_key = (u_orig, v_orig)
+                if u_orig in self.original_network and v_orig in self.original_network:
+                    u_data = self.original_network.nodes[u_orig]
+                    v_data = self.original_network.nodes[v_orig]
+                    edge_data = self.original_network.edges.get((u_orig, v_orig), {})
+                    
+                    edge_bottlenecks.append({
+                        'from_node': u_orig,
+                        'to_node': v_orig,
+                        'from_lat': u_data.get('lat'),
+                        'from_lon': u_data.get('lon'),
+                        'to_lat': v_data.get('lat'),
+                        'to_lon': v_data.get('lon'),
+                        'distance': edge_data.get('distance', 0),
+                        'type': 'edge_bottleneck'
+                    })
+        
+        return {
+            'node_bottlenecks': node_bottlenecks,
+            'edge_bottlenecks': edge_bottlenecks
+        }
 
