@@ -1,0 +1,15 @@
+pandas
+numpy
+networkx
+geopy
+folium
+matplotlib
+contextily
+geopandas
+shapely
+scikit-learn
+hdbscan
+seaborn
+Pillow
+selenium
+pyarrow

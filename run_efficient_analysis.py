@@ -7,7 +7,7 @@ This script first builds the distance table, then runs the multi-year analysis.
 
 import os
 import sys
-from efficient_distance_table_builder import DistanceTableBuilder
+from src.distance_table import DistanceTableBuilder
 from multi_year_migration_analysis import MultiYearMigrationAnalyzer
 
 def main():

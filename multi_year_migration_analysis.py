@@ -18,7 +18,7 @@ from geopy.distance import geodesic
 from datetime import datetime, timedelta
 import warnings
 import os
-from efficient_network_transformation_v2 import EfficientCraneNetworkBuilderV2
+from src.network_transformation import EfficientCraneNetworkBuilderV2
 import contextily as ctx
 from matplotlib.patches import Rectangle
 import folium

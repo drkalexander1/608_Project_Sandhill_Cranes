@@ -59,3 +59,9 @@ Thumbs.db
 temp_*
 *.tmp
 *.temp
+
+# Generated results (keep directory structure via .gitkeep)
+results/main/*
+results/detailed/*
+!results/main/.gitkeep
+!results/detailed/.gitkeep
