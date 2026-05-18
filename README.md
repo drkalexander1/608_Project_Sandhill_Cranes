@@ -1,5 +1,23 @@
 # Sandhill Crane Migration Network Analysis
 
+## Research Question
+
+How have sandhill crane migration pathways shifted over time, and which stopover 
+sites are most critical to population connectivity?
+
+North America has lost an estimated 3 billion birds since 1970. Sandhill cranes are 
+a keystone migratory species and an ecological indicator of wetland health — their 
+presence signals balance within freshwater ecosystems that sustain agriculture and 
+natural habitats. Their migrations depend on specific stopover sites to rest and 
+refuel; habitat loss forces route adjustments and increases stress on remaining 
+populations.
+
+This project uses network analysis on 3.2 million citizen science observations 
+(eBird, 2018–2023) to identify migration bottlenecks: stopover sites whose loss 
+would most disrupt population flow. Max-flow/min-cut analysis on the directed 
+migration network reveals which nodes carry the most load — and are therefore the 
+highest-priority targets for conservation intervention.
+
 ## Overview
 
 This project transforms sandhill crane observation data (2018–2023) into directed, weighted networks to analyze migration patterns. Using over 3.2 million citizen science observations, it builds networks of migration flow between counties, then applies max-flow/min-cut analysis, community detection, and bottleneck prediction to identify key migration corridors and stopover sites.
